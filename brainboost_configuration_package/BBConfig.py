@@ -3,6 +3,7 @@
 import re
 import os
 import json
+import platform
 import urllib.request  # New import for URL handling
 import sys
 from datetime import datetime
@@ -394,6 +395,23 @@ class BBConfig:
         cls._upload_to_redis = upload_to_redis
         cls._search_cache = {}
         cls._backup_done = False
+
+        # Inject built-in platform variables so config files can use ${DETECTED_OS}
+        # and ${EXECUTABLE_FILE_EXTENSION} in paths, e.g.:
+        #   some/path/${DETECTED_OS}/bin/my-tool${EXECUTABLE_FILE_EXTENSION}
+        _sys = platform.system().lower()
+        if _sys == "windows":
+            detected_os = "windows"
+            exe_ext = ".exe"
+        elif _sys == "darwin":
+            detected_os = "macos"
+            exe_ext = ""
+        else:
+            detected_os = "linux"
+            exe_ext = ""
+        cls.add_if_not_exists(k='DETECTED_OS', value=detected_os)
+        cls.add_if_not_exists(k='EXECUTABLE_FILE_EXTENSION', value=exe_ext)
+
         # Auto-fix missing paths on load (internal, no API change)
         cls._autofix_all_paths()
         
