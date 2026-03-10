@@ -396,21 +396,37 @@ class BBConfig:
         cls._search_cache = {}
         cls._backup_done = False
 
-        # Inject built-in platform variables so config files can use ${DETECTED_OS}
-        # and ${EXECUTABLE_FILE_EXTENSION} in paths, e.g.:
+        # Inject built-in platform variables so config files can use ${DETECTED_OS},
+        # ${EXECUTABLE_FILE_EXTENSION}, and ${DETECTED_SCRIPTS_DIR} in paths, e.g.:
         #   some/path/${DETECTED_OS}/bin/my-tool${EXECUTABLE_FILE_EXTENSION}
+        #   .venv/${DETECTED_SCRIPTS_DIR}/python${EXECUTABLE_FILE_EXTENSION}
         _sys = platform.system().lower()
         if _sys == "windows":
             detected_os = "windows"
             exe_ext = ".exe"
+            scripts_dir = "Scripts"
         elif _sys == "darwin":
             detected_os = "macos"
             exe_ext = ""
+            scripts_dir = "bin"
         else:
             detected_os = "linux"
             exe_ext = ""
+            scripts_dir = "bin"
+        current_application_dir = ""
+        try:
+            if getattr(sys, "frozen", False):
+                current_application_dir = str(Path(sys.executable).resolve().parent)
+            elif cls._config_file and not cls._config_file.startswith(("http://", "https://")):
+                current_application_dir = str(Path(cls._config_file).resolve().parent)
+            else:
+                current_application_dir = str(Path.cwd().resolve())
+        except Exception:
+            current_application_dir = str(Path.cwd().resolve())
         cls.add_if_not_exists(k='DETECTED_OS', value=detected_os)
         cls.add_if_not_exists(k='EXECUTABLE_FILE_EXTENSION', value=exe_ext)
+        cls.add_if_not_exists(k='DETECTED_SCRIPTS_DIR', value=scripts_dir)
+        cls.add_if_not_exists(k='CURRENT_APPLICATION_DIR', value=current_application_dir)
 
         # Auto-fix missing paths on load (internal, no API change)
         cls._autofix_all_paths()
