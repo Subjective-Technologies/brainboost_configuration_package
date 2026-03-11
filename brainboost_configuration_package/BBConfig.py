@@ -20,6 +20,7 @@ class BBConfig:
     _upload_to_redis = False  # New flag to indicate whether to use Redis for global configuration
     _search_cache = {}
     _backup_done = False
+    _persist_autofix = True
     
     @classmethod
     def read_config(cls, force_reload=False):
@@ -180,10 +181,11 @@ class BBConfig:
 
     @classmethod
     def _persist_fixed_path(cls, key, value):
-        """Store resolved path in memory and on disk config file."""
+        """Store resolved path in memory and optionally on disk config file."""
         cls._conf[key] = value
         cls._resolved_conf[key] = value
-        cls._write_back_config(key, value)
+        if cls._persist_autofix:
+            cls._write_back_config(key, value)
         try:
             print(f"Configuration key '{key}' auto-fixed to: {value}")
         except Exception:
@@ -381,7 +383,15 @@ class BBConfig:
             print(f"Warning: Key '{k}' already exists in the configuration. No changes were made.")
     
     @classmethod
-    def configure(cls, custom_config_path, upload_to_redis=False, redis_ip='127.0.0.1', redis_port='6379'):
+    def configure(
+        cls,
+        custom_config_path,
+        upload_to_redis=False,
+        redis_ip='127.0.0.1',
+        redis_port='6379',
+        autofix_paths=True,
+        persist_autofix=True,
+    ):
 
         if not os.path.isfile(custom_config_path):
             raise FileNotFoundError(f"Custom configuration file '{custom_config_path}' not found.")
@@ -395,6 +405,7 @@ class BBConfig:
         cls._upload_to_redis = upload_to_redis
         cls._search_cache = {}
         cls._backup_done = False
+        cls._persist_autofix = persist_autofix
 
         # Inject built-in platform variables so config files can use ${DETECTED_OS},
         # ${EXECUTABLE_FILE_EXTENSION}, and ${DETECTED_SCRIPTS_DIR} in paths, e.g.:
@@ -428,8 +439,8 @@ class BBConfig:
         cls.add_if_not_exists(k='DETECTED_SCRIPTS_DIR', value=scripts_dir)
         cls.add_if_not_exists(k='CURRENT_APPLICATION_DIR', value=current_application_dir)
 
-        # Auto-fix missing paths on load (internal, no API change)
-        cls._autofix_all_paths()
+        if autofix_paths:
+            cls._autofix_all_paths()
         
         if upload_to_redis:
             try:
