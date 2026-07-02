@@ -20,7 +20,17 @@ class BBConfig:
     _upload_to_redis = False  # New flag to indicate whether to use Redis for global configuration
     _search_cache = {}
     _backup_done = False
-    _persist_autofix = True
+    # Never rewrite the config file on disk unless explicitly requested via
+    # configure(persist_autofix=True). Persisting machine-specific search
+    # results corrupts configs shared across OSes/machines.
+    _persist_autofix = False
+
+    # Directory names that are never useful when searching for a configured
+    # path and make recursive scans slow (or dangerous, e.g. Recycle Bin).
+    _SEARCH_PRUNE_DIRS = {
+        ".git", ".venv", "venv", "env", "node_modules", "__pycache__",
+        "MagicMock", ".idea", ".vscode", "$recycle.bin", "system volume information",
+    }
     
     @classmethod
     def read_config(cls, force_reload=False):
@@ -61,13 +71,15 @@ class BBConfig:
 
     @classmethod
     def _candidate_roots(cls):
+        # Only search inside the application's own tree. Parent directories are
+        # intentionally excluded: they may contain sibling projects (or, on
+        # Windows, Recycle Bin folders) whose files share names with ours and
+        # would be silently picked up as "fixes".
         roots = []
         if cls._config_file:
             cfg_dir = Path(cls._config_file).resolve().parent
             roots.append(cfg_dir)
-            roots.append(cfg_dir.parent)
         roots.append(Path.cwd())
-        roots.append(Path.cwd().parent)
         try:
             exe_dir = Path(sys.executable).resolve().parent
             roots.append(exe_dir)
@@ -105,7 +117,11 @@ class BBConfig:
 
     @classmethod
     def _search_for_path(cls, target_name):
-        """Recursively search candidate roots for a filename; cached by name."""
+        """Search candidate roots for a filename; cached by name.
+
+        Uses os.walk with pruning instead of rglob so the scan skips
+        virtualenvs, VCS folders and other noise (much faster and safer).
+        """
         if not target_name:
             return None
         name = Path(target_name).name.lower()
@@ -113,10 +129,19 @@ class BBConfig:
             return cls._search_cache[name]
         for root in cls._candidate_roots():
             try:
-                for p in root.rglob(name):
-                    if p.exists():
-                        cls._search_cache[name] = str(p.resolve())
-                        return cls._search_cache[name]
+                for dirpath, dirnames, filenames in os.walk(root):
+                    dirnames[:] = [
+                        d for d in dirnames
+                        if d.lower() not in cls._SEARCH_PRUNE_DIRS
+                        and not d.startswith((".", "_tmp"))
+                    ]
+                    # Match files only: directory paths that don't exist yet must
+                    # be created in place, not redirected to a look-alike folder.
+                    for entry in filenames:
+                        if entry.lower() == name:
+                            found = Path(dirpath) / entry
+                            cls._search_cache[name] = str(found.resolve())
+                            return cls._search_cache[name]
             except (OSError, RuntimeError):
                 continue
         cls._search_cache[name] = None
@@ -166,9 +191,12 @@ class BBConfig:
             if candidate.exists():
                 return value
 
+        # Only search for files that already exist somewhere in the app tree.
+        # Paths that simply have not been created yet (databases, storage
+        # folders) must be left untouched so the app creates them in place.
         found = cls._search_for_path(expanded)
         if found:
-            # Prefer persisting a relative path when possible
+            # Prefer a relative path when possible
             for root in cls._candidate_roots():
                 try:
                     rel = Path(found).resolve().relative_to(root.resolve())
@@ -390,7 +418,7 @@ class BBConfig:
         redis_ip='127.0.0.1',
         redis_port='6379',
         autofix_paths=True,
-        persist_autofix=True,
+        persist_autofix=False,
     ):
 
         if not os.path.isfile(custom_config_path):
