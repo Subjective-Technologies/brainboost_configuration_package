@@ -6,3 +6,5 @@
 /context.py
 /dist
 /venv
+__pycache__/
+*.pyc
